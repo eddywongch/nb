@@ -11,10 +11,10 @@ scenarios:
 params:
   instrument: TEMPLATE(instrument,false)
 bindings:
-  usr: Mod(<<sources:10000>>);  -> int
+  usr: Mod(<<keyCount:1000000>>L); ToLong()
   net: HashedLineToString('data/variable_words.txt')
   title: HashedLineToString('data/variable_words.txt')
-  fact: Mod(<<sources:10000>>);  -> int
+  fact: Mod(<<sources:10000>>);  ToInt()
   date: Mul(<<timespeed:100>>L); Div(<<sources:10000>>L); ToDate()
   val: HashedFileExtractToString('data/lorem_ipsum_full.txt',800,1200)
 blocks:
