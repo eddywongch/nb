@@ -1,0 +1,111 @@
+
+# nb -v run driver=cql yaml=cql-act tags=phase:schema host=dsehost
+
+description: |
+  This workload emulates data model and access patterns.
+scenarios:
+  default:
+    schema: run driver=cql tags==phase:schema threads==1 cycles==UNDEF
+    rampup: run driver=cql tags==phase:rampup cycles===TEMPLATE(rampup-cycles,10000000) threads=auto
+    main: run driver=cql tags==phase:main cycles===TEMPLATE(main-cycles,10000000) threads=auto
+params:
+  instrument: TEMPLATE(instrument,false)
+bindings:
+  usr: Mod(<<sources:10000>>);  -> int
+  net: HashedLineToString('data/variable_words.txt')
+  title: HashedLineToString('data/variable_words.txt')
+  fact: Mod(<<sources:10000>>);  -> int
+  date: Mul(<<timespeed:100>>L); Div(<<sources:10000>>L); ToDate()
+  val: HashedFileExtractToString('data/lorem_ipsum_full.txt',800,1200)
+blocks:
+  - tags:
+      phase: schema
+    params:
+      prepared: false
+    statements:
+     - create-keyspace: |
+        create keyspace if not exists <<keyspace:pdm_cod>>
+        WITH replication = {'class': 'SimpleStrategy', 'replication_factor': '<<rf:1>>'}  
+        AND durable_writes = true;
+       tags:
+         name: create-keyspace
+     - create-table : |
+        create table pdm_cod.fact (
+        usr bigint,
+        net text,
+        title text,
+        fact int,
+        date timestamp,
+        val text,
+        PRIMARY KEY ((usr, net), title, fact)
+        ) WITH CLUSTERING ORDER BY (title ASC, fact ASC)
+        AND compression = { 'sstable_compression' : '<<compression:LZ4Compressor>>' }
+        AND compaction = {
+         'class': 'SizeTieredCompactionStrategy'
+        };
+       tags:
+         name: create-table
+     - truncate-table: |
+         truncate table <<keyspace:pdm_cod>>.<<table:fact>>;
+       tags:
+         name: truncate-table
+  - tags:
+      phase: rampup
+    params:
+      cl: <<write_cl:LOCAL_QUORUM>>
+    statements:
+     - insert-rampup: |
+        insert into  <<keyspace:pdm_cod>>.<<table:fact>>
+        (usr, net, title, fact, date, val)
+        values ({usr}, {net}, {title}, {fact}, {date}, {val})
+       idempotent: true
+       tags:
+         name: insert-rampup
+       params:
+         instrument: TEMPLATE(instrument-writes,TEMPLATE(instrument,false))
+  - tags:
+      phase: verify
+      type: read
+    params:
+      ratio: 1
+      cl: <<read_cl:LOCAL_QUORUM>>
+    statements:
+     - select-verify: |
+        select * from <<keyspace:pdm_cod>>.<<table:fact>>
+        where usr={usr} and net={net} and title={title} and fact={fact};
+       verify-fields: "*"
+       tags:
+         name: select-verify
+       params:
+         instrument: TEMPLATE(instrument-reads,TEMPLATE(instrument,false))
+  - tags:
+      phase: main
+      type: read
+    params:
+      ratio: <<read_ratio:1>>
+      cl: <<read_cl:LOCAL_QUORUM>>
+    statements:
+     - select-read: |
+        select * from <<keyspace:pdm_cod>>.<<table:fact>>
+        where usr={usr} and net={net} and title={title} and fact={fact}
+        limit <<limit:10>>
+       tags:
+         name: select-read
+       params:
+         instrument: TEMPLATE(instrument-reads,TEMPLATE(instrument,false))
+  - tags:
+      phase: main
+      type: write
+    params:
+      ratio: <<write_ratio:9>>
+      cl: <<write_cl:LOCAL_QUORUM>>
+    statements:
+     - insert-main: |
+        insert into <<keyspace:pdm_cod>>.<<table:fact>>
+        (usr, net, title, fact, date, val)
+        values ({usr}, {net}, {title}, {fact}, {date}, {val})
+       idempotent: true
+       tags:
+         name: insert-main
+       params:
+         instrument: TEMPLATE(instrument-writes,TEMPLATE(instrument,false))
